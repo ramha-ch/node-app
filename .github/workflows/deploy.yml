@@ -1,8 +1,30 @@
-name: Build and Deploy Node App with Docker
+# ==============================================
+# 🚀 GitHub Actions CI/CD Workflow for Node.js App
+# ----------------------------------------------
+# This workflow:
+# - Runs on push to dev, test, or pro branches
+# - Builds a Docker image for each environment
+# - Tags the image with the branch name
+# - Pushes it to Docker Hub
+# - SSHes into an EC2 instance
+# - Pulls and runs the Docker container
+# ----------------------------------------------
+# Best Practices Used:
+# ✅ Dockerized Deployment
+# ✅ Secure Secrets via GitHub Actions
+# ✅ Multi-branch Environment Isolation
+# ✅ Idempotent Remote Docker Deployment
+# ✅ Dynamic Docker Image Tagging
+# ==============================================
+
+name: Build and Deploy Node App with Docker (Same Credentials)
 
 on:
   push:
-    branches: [main]
+    branches:
+      - dev
+      - test
+      - pro
 
 jobs:
   deploy:
@@ -12,30 +34,37 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
+    - name: Get Branch Name
+      id: vars
+      run: |
+        BRANCH_NAME="${GITHUB_REF##*/}"
+        echo "env=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+
     - name: Log in to Docker Hub
       run: |
         echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-    - name: Build Docker image
+    - name: Build Docker Image
       run: |
-        docker build -t ${{ secrets.DOCKER_USERNAME }}/node-app:latest .
+        TAG=${{ steps.vars.outputs.env }}
+        docker build -t ${{ secrets.DOCKER_USERNAME }}/node-app:${TAG} .
 
-    - name: Push Docker image to Docker Hub
+    - name: Push Docker Image to Docker Hub
       run: |
-        docker push ${{ secrets.DOCKER_USERNAME }}/node-app:latest
+        TAG=${{ steps.vars.outputs.env }}
+        docker push ${{ secrets.DOCKER_USERNAME }}/node-app:${TAG}
 
-    - name: Setup SSH and Deploy on EC2
+    - name: SSH and Deploy to EC2
       run: |
+        TAG=${{ steps.vars.outputs.env }}
         mkdir -p ~/.ssh
         echo "${{ secrets.EC2_KEY }}" > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
         ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
         ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
-          docker pull ${{ secrets.DOCKER_USERNAME }}/node-app:latest
-
-          docker stop node-app || true
-          docker rm node-app || true
-
-          docker run -d --name node-app -p 3000:3000 ${{ secrets.DOCKER_USERNAME }}/node-app:latest
+          sudo docker pull ${{ secrets.DOCKER_USERNAME }}/node-app:${TAG}
+          sudo docker stop node-app || true
+          sudo docker rm node-app || true
+          sudo docker run -d --name node-app -p 3000:3000 ${{ secrets.DOCKER_USERNAME }}/node-app:${TAG}
         EOF
